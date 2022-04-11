@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+.links line {
+  stroke: #999;
+  stroke-opacity: 0.4;
+}
+
+.nodes circle {
+  stroke: #fff;
+  stroke-width: 1.5px;
+  opacity: 0.6;
+}
+
+div.tooltip {
+    position: absolute;
+    background-color: white;
+    max-width: 200px;
+    height: auto;
+    padding: 1px;
+    border-style: solid;
+    border-radius: 4px;
+    border-width: 1px;
+    box-shadow: 3px 3px 10px rgba(0, 0, 0, .5);
+    pointer-events: none;
+}
+
+</style>
+<svg width="1800" height="1200"></svg>
+<script src="https://d3js.org/d3.v4.min.js"></script>
+
+<script>
+
+var svg = d3.select("svg"),
+    width = +svg.attr("width"),
+    height = +svg.attr("height");
+
+// var color = d3.scaleOrdinal(["#f0bd27","#f0bd27","#f0bd27","#51b364","#51b364","#51b364","#51b364","#51b364","#e03531","#f0bd27",
+// "#f0bd27","#51b364","#51b364","#51b364","#f0bd27","#51b364","#51b364","#51b364","#51b364","#f0bd27",
+// "#51b364","#e03531","#f0bd27","#51b364","#f0bd27"]);
+var color = d3.scaleOrdinal(d3.schemeCategory20);
+
+// var color = d3.scaleOrdinal(d3.schemePaired);
+
+var radius = d3.scaleSqrt()
+    .range([0, 6]);
+
+var simulation = d3.forceSimulation()
+    // .velocityDecay(0.1)
+    .force("link", d3.forceLink().id(function(d) {return d.id; }).distance(65).strength(1))
+    .force("charge", d3.forceManyBody().strength(-30))
+    // .force('collide', d3.forceCollide().radius(10).iterations(2))
+    .force("collide", d3.forceCollide().radius(function(d) { if (d.value < 2) {return radius(5)}  // <== Add these
+                                                             else    { return radius(100) }          // <== Add these
+                                                             ; }).strength(1))
+                                        // .strength(function(d) { if (d.value < 2) {return strength(1)}  // <== Add these
+                                        //                      else    { return strength(1) }          // <== Add these
+                                        //                      ; }))
+    // .force("collide", d3.forceCollide().radius(function(d) { return radius(d.value*1.2); }).strength(1))
+    .force("forceX", d3.forceX(width/2).strength(0.2) )
+    .force("forceY", d3.forceY(height/2).strength(0.2) )
+    .force("center", d3.forceCenter(width / 2, height / 2));
+
+var tooltip = d3.select("body")
+	.append("div")
+	.attr("class", "tooltip")
+	.style("opacity", 0);
+
+d3.json("Rehabilitation_Ecosystem_graph.json", function(error, graph) {
+  if (error) throw error;
+
+  var link = svg.append("g")
+      .attr("class", "links")
+    .selectAll("path")
+    .data(graph.links)
+    .enter().append("svg:path")
+    .attr("stroke-width", function(d) { return 1 });
+    //   .attr("stroke-width", function(d) { return Math.sqrt(d.value); });
+  
+  link.style('fill', 'none')
+  		.style('stroke', function(d) { return color(d.group); })
+      .style("stroke-width", '.8px')
+      .style("stroke-opacity", 0.5);
+
+
+
+  var node = svg.append("g")
+      .attr("class", "nodes")
+    .selectAll("g")
+    .data(graph.nodes)
+    .enter().append("g")
+    .style('transform-origin', '50% 50%')  
+      .call(d3.drag()
+          .on("start", dragstarted)
+          .on("drag", dragged)
+          .on("end", dragended));
+
+  node.append('circle')
+    .attr("r", function(d) {return d.value * 10 ; })
+    .attr("fill", function(d) { return color(d.group); })
+    .on('mouseover.tooltip', function(d) {
+      	tooltip.transition()
+        	.duration(300)
+        	.style("opacity", .8);
+      	tooltip.html(d.name)
+        	.style("left", (d3.event.pageX) + "px")
+        	.style("top", (d3.event.pageY + 10) + "px");
+    	})
+  	.on('mouseover.fade', fade(0.1))
+    .on("mouseout.tooltip", function() {
+        tooltip.transition()
+	        .duration(100)
+	        .style("opacity", 0);
+	    })
+  	.on('mouseout.fade', fade(1))
+	    .on("mousemove", function() {
+	      tooltip.style("left", (d3.event.pageX) + "px")
+	        .style("top", (d3.event.pageY + 10) + "px");
+	    })
+  	.on('dblclick',releasenode)
+
+node.append("text")
+    .attr("dy", ".35em")
+    .attr("text-anchor", "middle")
+    .text(function(d) { return d.name; })
+    .style("font-size", adaptLabelFontSize);
+
+  simulation
+      .nodes(graph.nodes)
+      .on("tick", ticked);
+
+  simulation.force("link")
+      .links(graph.links);
+
+  function ticked() {
+    link.attr("d", function(d) {
+        var dx = d.target.x - d.source.x,
+            dy = d.target.y - d.source.y,
+            dr = Math.sqrt(dx * dx + dy * dy);
+        return "M" + 
+            d.source.x + "," + 
+            d.source.y + "A" + 
+            dr + "," + dr + " 0 0,1 " + 
+            d.target.x + "," + 
+            d.target.y;
+    });
+
+    node.attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
+    // node
+    //     .attr("cx", function(d) { return d.x; })
+    //     .attr("cy", function(d) { return d.y; });
+  }
+});
+
+
+
+function dragstarted(d) {
+  if (!d3.event.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x;
+  d.fy = d.y;
+}
+
+function dragged(d) {
+  d.fx = d3.event.x;
+  d.fy = d3.event.y;
+}
+
+function dragended(d) {
+  if (!d3.event.active) simulation.alphaTarget(0);
+  d.fx = null;
+  d.fy = null;
+}
+
+function adaptLabelFontSize(d) {
+  var xPadding, diameter, labelAvailableWidth, labelWidth;
+
+  xPadding = 5;
+  diameter = d.value * 20;
+  labelAvailableWidth = diameter - xPadding;
+
+  labelWidth = this.getComputedTextLength();
+
+  // There is enough space for the label so leave it as is.
+  if (labelWidth < labelAvailableWidth) {
+    return null;
+  }
+
+  /*
+   * The meaning of the ratio between labelAvailableWidth and labelWidth equaling 1 is that
+   * the label is taking up exactly its available space.
+   * With the result as `1em` the font remains the same.
+   *
+   * The meaning of the ratio between labelAvailableWidth and labelWidth equaling 0.5 is that
+   * the label is taking up twice its available space.
+   * With the result as `0.5em` the font will change to half its original size.
+   */
+  return (labelAvailableWidth / labelWidth) + 'em';
+}
+
+function releasenode(d) {
+    d.fx = null;
+    d.fy = null;
+}
+
+function fade(opacity) {
+    return d => {
+      node.style('stroke-opacity', function (o) {
+        const thisOpacity = isConnected(d, o) ? 1 : opacity;
+        this.setAttribute('fill-opacity', thisOpacity);
+        return thisOpacity;
+      });
+
+      link.style('stroke-opacity', o => (o.source === d || o.target === d ? 1 : opacity));
+
+    };
+  }
+</script>
